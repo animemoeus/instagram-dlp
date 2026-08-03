@@ -13,7 +13,7 @@ def health() -> dict:
     return {"status": "ok"}
 
 
-@app.get("/api/instagram/info", response_model=InstagramPostInfo)
+@app.get("/instagram/post", response_model=InstagramPostInfo)
 def instagram_info(url: str = Query(..., description="Instagram post/reel/tv URL")) -> dict:
     try:
         return get_instagram_post_uploader_info(
