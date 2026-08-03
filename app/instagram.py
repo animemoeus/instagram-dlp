@@ -1,0 +1,53 @@
+import yt_dlp
+
+# Catatan: yt-dlp tidak mendukung lookup profil Instagram langsung dari username saja
+# (extractor `instagram:user` sudah dinonaktifkan oleh yt-dlp karena endpoint lama diblokir
+# Instagram). Yang masih berfungsi adalah extractor untuk post/reel/tv spesifik, jadi fungsi
+# ini menerima URL post dan mengembalikan info uploader/user dari post tersebut.
+
+
+def get_instagram_post_uploader_info(post_url: str, proxy_url: str | None = None, verify_ssl: bool = True) -> dict:
+    ydl_opts = {
+        "quiet": True,
+        "skip_download": True,
+        # Post foto (bukan video/reel) tidak punya format video, yang oleh yt-dlp
+        # dianggap error secara default. Opsi ini mengubahnya jadi warning saja.
+        "ignore_no_formats_error": True,
+    }
+
+    if proxy_url:
+        ydl_opts["proxy"] = proxy_url
+        # Jaringan di path menuju proxy ini mem-MITM TLS (sertifikat instagram.com
+        # diganti dengan sertifikat terbitan CA "Fortinet"), jadi verifikasi sertifikat
+        # harus dimatikan supaya proxy bisa dipakai.
+        ydl_opts["nocheckcertificate"] = not verify_ssl
+
+    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+        info = ydl.extract_info(post_url, download=False)
+
+    # Post carousel (banyak foto/video) muncul sebagai info['entries'], masing-masing
+    # dengan thumbnails/formats-nya sendiri. Post tunggal punya keduanya langsung di info.
+    items = info.get("entries", [info])
+
+    # "thumbnails" berurutan dari resolusi terendah ke tertinggi, jadi ambil elemen terakhir.
+    thumbnail_urls = [item["thumbnails"][-1]["url"] for item in items if item.get("thumbnails")]
+
+    # Item foto tidak punya "formats" sama sekali; item video punya beberapa kualitas,
+    # ambil yang width-nya terbesar.
+    video_urls = [
+        max(item["formats"], key=lambda f: f.get("width") or 0)["url"]
+        for item in items
+        if item.get("formats")
+    ]
+
+    return {
+        "username": info.get("channel"),
+        "uploader_name": info.get("uploader"),
+        "uploader_id": info.get("uploader_id"),
+        "description": info.get("description"),
+        "like_count": info.get("like_count"),
+        "comment_count": info.get("comment_count"),
+        "upload_date": info.get("upload_date"),
+        "thumbnail_urls": thumbnail_urls,
+        "video_urls": video_urls,
+    }
