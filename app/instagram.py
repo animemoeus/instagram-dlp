@@ -13,6 +13,7 @@ def get_instagram_post_uploader_info(post_url: str, proxy_url: str | None = None
         # Post foto (bukan video/reel) tidak punya format video, yang oleh yt-dlp
         # dianggap error secara default. Opsi ini mengubahnya jadi warning saja.
         "ignore_no_formats_error": True,
+        "getcomments": True,
     }
 
     if proxy_url:
@@ -50,4 +51,38 @@ def get_instagram_post_uploader_info(post_url: str, proxy_url: str | None = None
         "upload_date": info.get("upload_date"),
         "thumbnail_urls": thumbnail_urls,
         "video_urls": video_urls,
+        "comments": _collect_comments(info, items),
     }
+
+
+def _collect_comments(info: dict, items: list[dict]) -> list[dict]:
+    # Post carousel: yt-dlp menempelkan list komentar POST yang sama ke setiap
+    # entry, jadi digabung mentah-mentah akan terduplikasi sebanyak jumlah media.
+    # Dedupe berdasarkan "id" (fallback ke author_id+text+timestamp kalau kosong).
+    seen: set = set()
+    result: list[dict] = []
+    for source in (info.get("comments"), *(item.get("comments") for item in items)):
+        for comment in source or []:
+            key = comment.get("id") or (
+                comment.get("author_id"),
+                comment.get("text"),
+                comment.get("timestamp"),
+            )
+            if key in seen:
+                continue
+            seen.add(key)
+            result.append(
+                {
+                    "id": comment.get("id"),
+                    "author": comment.get("author"),
+                    "author_id": comment.get("author_id"),
+                    "text": comment.get("text"),
+                    "like_count": comment.get("like_count"),
+                    "timestamp": comment.get("timestamp"),
+                }
+            )
+    # Instagram tidak mengirim comments_connection.edges dalam urutan yang
+    # dijamin, jadi urutkan sendiri berdasarkan like_count terbanyak dulu
+    # untuk mendekati "top comments" yang ditampilkan aplikasi Instagram.
+    result.sort(key=lambda c: c["like_count"] or 0, reverse=True)
+    return result

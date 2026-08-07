@@ -1,6 +1,15 @@
 from pydantic import BaseModel
 
 
+class Comment(BaseModel):
+    id: str | None
+    author: str | None
+    author_id: str | None
+    text: str | None
+    like_count: int | None
+    timestamp: int | None
+
+
 class InstagramPostInfo(BaseModel):
     username: str | None
     uploader_name: str | None
@@ -11,3 +20,4 @@ class InstagramPostInfo(BaseModel):
     upload_date: str | None
     thumbnail_urls: list[str]
     video_urls: list[str]
+    comments: list[Comment]
