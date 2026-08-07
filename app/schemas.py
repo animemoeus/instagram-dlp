@@ -13,6 +13,7 @@ class Comment(BaseModel):
 class InstagramPostInfo(BaseModel):
     username: str | None
     uploader_name: str | None
+    profile_photo_url: str | None
     uploader_id: str | None
     description: str | None
     like_count: int | None

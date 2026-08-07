@@ -1,9 +1,14 @@
+import curl_cffi
 import yt_dlp
 
 # Catatan: yt-dlp tidak mendukung lookup profil Instagram langsung dari username saja
 # (extractor `instagram:user` sudah dinonaktifkan oleh yt-dlp karena endpoint lama diblokir
 # Instagram). Yang masih berfungsi adalah extractor untuk post/reel/tv spesifik, jadi fungsi
 # ini menerima URL post dan mengembalikan info uploader/user dari post tersebut.
+
+# App ID publik standar web client Instagram, dipakai banyak scraper open-source
+# untuk lookup profil by username tanpa login.
+_IG_APP_ID = "936619743392459"
 
 
 def get_instagram_post_uploader_info(post_url: str, proxy_url: str | None = None, verify_ssl: bool = True) -> dict:
@@ -52,7 +57,32 @@ def get_instagram_post_uploader_info(post_url: str, proxy_url: str | None = None
         "thumbnail_urls": thumbnail_urls,
         "video_urls": video_urls,
         "comments": _collect_comments(info, items),
+        "profile_photo_url": _get_profile_photo_url(info.get("channel"), proxy_url, verify_ssl),
     }
+
+
+def _get_profile_photo_url(username: str | None, proxy_url: str | None, verify_ssl: bool) -> str | None:
+    # yt-dlp tidak mengekspos profile_pic_url dari data user mentah, jadi ini
+    # butuh request terpisah ke endpoint publik Instagram. Enrichment opsional:
+    # kalau gagal/di-rate-limit, degrade ke None, jangan sampai bikin request
+    # post utama gagal.
+    if not username:
+        return None
+    try:
+        resp = curl_cffi.requests.get(
+            "https://www.instagram.com/api/v1/users/web_profile_info/",
+            params={"username": username},
+            headers={"X-IG-App-ID": _IG_APP_ID},
+            impersonate="chrome",
+            proxy=proxy_url,
+            verify=verify_ssl,
+            timeout=10,
+        )
+        resp.raise_for_status()
+        user = resp.json()["data"]["user"]
+        return user.get("profile_pic_url_hd") or user.get("profile_pic_url")
+    except Exception:
+        return None
 
 
 def _collect_comments(info: dict, items: list[dict]) -> list[dict]:
