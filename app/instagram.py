@@ -1,13 +1,14 @@
 import curl_cffi
 import yt_dlp
 
-# Catatan: yt-dlp tidak mendukung lookup profil Instagram langsung dari username saja
-# (extractor `instagram:user` sudah dinonaktifkan oleh yt-dlp karena endpoint lama diblokir
-# Instagram). Yang masih berfungsi adalah extractor untuk post/reel/tv spesifik, jadi fungsi
-# ini menerima URL post dan mengembalikan info uploader/user dari post tersebut.
+# Note: yt-dlp doesn't support looking up an Instagram profile directly from just a
+# username (the `instagram:user` extractor was disabled by yt-dlp because the old
+# endpoint got blocked by Instagram). What still works is the extractor for a specific
+# post/reel/tv, so this function takes a post URL and returns the uploader/user info
+# from that post.
 
-# App ID publik standar web client Instagram, dipakai banyak scraper open-source
-# untuk lookup profil by username tanpa login.
+# Standard public App ID for Instagram's web client, used by many open-source scrapers
+# to look up profiles by username without logging in.
 _IG_APP_ID = "936619743392459"
 
 
@@ -15,31 +16,31 @@ def get_instagram_post_uploader_info(post_url: str, proxy_url: str | None = None
     ydl_opts = {
         "quiet": True,
         "skip_download": True,
-        # Post foto (bukan video/reel) tidak punya format video, yang oleh yt-dlp
-        # dianggap error secara default. Opsi ini mengubahnya jadi warning saja.
+        # Photo posts (as opposed to video/reel) have no video format, which yt-dlp
+        # treats as an error by default. This option downgrades it to just a warning.
         "ignore_no_formats_error": True,
         "getcomments": True,
     }
 
     if proxy_url:
         ydl_opts["proxy"] = proxy_url
-        # Jaringan di path menuju proxy ini mem-MITM TLS (sertifikat instagram.com
-        # diganti dengan sertifikat terbitan CA "Fortinet"), jadi verifikasi sertifikat
-        # harus dimatikan supaya proxy bisa dipakai.
+        # The network path to this proxy MITMs TLS (instagram.com's certificate is
+        # replaced with one issued by a "Fortinet" CA), so certificate verification
+        # has to be disabled for the proxy to work.
         ydl_opts["nocheckcertificate"] = not verify_ssl
 
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
         info = ydl.extract_info(post_url, download=False)
 
-    # Post carousel (banyak foto/video) muncul sebagai info['entries'], masing-masing
-    # dengan thumbnails/formats-nya sendiri. Post tunggal punya keduanya langsung di info.
+    # Carousel posts (multiple photos/videos) show up as info['entries'], each with its
+    # own thumbnails/formats. Single posts have both directly on info.
     items = info.get("entries", [info])
 
-    # "thumbnails" berurutan dari resolusi terendah ke tertinggi, jadi ambil elemen terakhir.
+    # "thumbnails" are ordered from lowest to highest resolution, so take the last element.
     thumbnail_urls = [item["thumbnails"][-1]["url"] for item in items if item.get("thumbnails")]
 
-    # Item foto tidak punya "formats" sama sekali; item video punya beberapa kualitas,
-    # ambil yang width-nya terbesar.
+    # Photo items have no "formats" at all; video items have multiple qualities,
+    # so take the one with the largest width.
     video_urls = [
         max(item["formats"], key=lambda f: f.get("width") or 0)["url"]
         for item in items
@@ -62,10 +63,10 @@ def get_instagram_post_uploader_info(post_url: str, proxy_url: str | None = None
 
 
 def _get_profile_photo_url(username: str | None, proxy_url: str | None, verify_ssl: bool) -> str | None:
-    # yt-dlp tidak mengekspos profile_pic_url dari data user mentah, jadi ini
-    # butuh request terpisah ke endpoint publik Instagram. Enrichment opsional:
-    # kalau gagal/di-rate-limit, degrade ke None, jangan sampai bikin request
-    # post utama gagal.
+    # yt-dlp doesn't expose profile_pic_url from the raw user data, so this
+    # needs a separate request to Instagram's public endpoint. This is optional
+    # enrichment: if it fails or gets rate-limited, degrade to None instead of
+    # failing the main post request.
     if not username:
         return None
     try:
@@ -86,9 +87,9 @@ def _get_profile_photo_url(username: str | None, proxy_url: str | None, verify_s
 
 
 def _collect_comments(info: dict, items: list[dict]) -> list[dict]:
-    # Post carousel: yt-dlp menempelkan list komentar POST yang sama ke setiap
-    # entry, jadi digabung mentah-mentah akan terduplikasi sebanyak jumlah media.
-    # Dedupe berdasarkan "id" (fallback ke author_id+text+timestamp kalau kosong).
+    # Carousel posts: yt-dlp attaches the same POST comment list to every
+    # entry, so merging them raw would duplicate each comment once per media item.
+    # Dedupe by "id" (falling back to author_id+text+timestamp when empty).
     seen: set = set()
     result: list[dict] = []
     for source in (info.get("comments"), *(item.get("comments") for item in items)):
@@ -111,8 +112,8 @@ def _collect_comments(info: dict, items: list[dict]) -> list[dict]:
                     "timestamp": comment.get("timestamp"),
                 }
             )
-    # Instagram tidak mengirim comments_connection.edges dalam urutan yang
-    # dijamin, jadi urutkan sendiri berdasarkan like_count terbanyak dulu
-    # untuk mendekati "top comments" yang ditampilkan aplikasi Instagram.
+    # Instagram doesn't send comments_connection.edges in a guaranteed order,
+    # so sort by highest like_count first to approximate the "top comments"
+    # shown by the Instagram app.
     result.sort(key=lambda c: c["like_count"] or 0, reverse=True)
     return result
